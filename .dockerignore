@@ -14,4 +14,3 @@ Dockerfile
 node_modules
 .git
 .github
-.well-known
