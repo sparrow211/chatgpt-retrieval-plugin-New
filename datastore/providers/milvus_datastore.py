@@ -33,7 +33,8 @@ MILVUS_HOST = os.environ.get("MILVUS_HOST") or "localhost"
 MILVUS_PORT = os.environ.get("MILVUS_PORT") or 19530
 MILVUS_USER = os.environ.get("MILVUS_USER")
 MILVUS_PASSWORD = os.environ.get("MILVUS_PASSWORD")
-MILVUS_USE_SECURITY = False if MILVUS_PASSWORD is None else True
+#MILVUS_USE_SECURITY = False if MILVUS_PASSWORD is None else True
+MILVUS_USE_SECURITY = os.environ.get("MILVUS_USE_SECURITY") or False
 
 MILVUS_INDEX_PARAMS = os.environ.get("MILVUS_INDEX_PARAMS")
 MILVUS_SEARCH_PARAMS = os.environ.get("MILVUS_SEARCH_PARAMS")
@@ -43,7 +44,7 @@ UPSERT_BATCH_SIZE = 100
 OUTPUT_DIM = int(os.environ.get("EMBEDDING_DIMENSION", 256))
 EMBEDDING_FIELD = "embedding"
 
-
+logger.info(f"MILVUS_USE_SECURITY: {MILVUS_USE_SECURITY}")
 class Required:
     pass
 

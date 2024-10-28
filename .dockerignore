@@ -6,7 +6,12 @@ tests/
 examples/
 local_server/
 assets/
+docs/
 *.md
 *.pyc
 .dockerignore
 Dockerfile
+node_modules
+.git
+.github
+.well-known
