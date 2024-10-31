@@ -14,15 +14,22 @@ class UpsertRequest(BaseModel):
 
 class UpsertResponse(BaseModel):
     ids: List[str]
+    total_token: int
 
 
 class QueryRequest(BaseModel):
     queries: List[Query]
 
+class QueryRequest2(BaseModel):
+    queries: List[Query]
+    openai_api_key: Optional[str] = None
 
 class QueryResponse(BaseModel):
     results: List[QueryResult]
 
+class QueryResponse2(BaseModel):
+    results: List[QueryResult]
+    total_token: int
 
 class DeleteRequest(BaseModel):
     ids: Optional[List[str]] = None

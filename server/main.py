@@ -1,4 +1,5 @@
 import os
+import openai
 from typing import Optional
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, Depends, Body, UploadFile
@@ -10,14 +11,16 @@ from models.api import (
     DeleteRequest,
     DeleteResponse,
     QueryRequest,
+    QueryRequest2,
     QueryResponse,
+    QueryResponse2,
     UpsertRequest,
     UpsertResponse,
 )
 from datastore.factory import get_datastore
 from services.file import get_document_from_file
 
-from models.models import DocumentMetadata, Source
+from models.models import DocumentMetadata, Source,MyCustomError
 
 bearer_scheme = HTTPBearer()
 BEARER_TOKEN = os.environ.get("BEARER_TOKEN")
@@ -33,15 +36,6 @@ def validate_token(credentials: HTTPAuthorizationCredentials = Depends(bearer_sc
 app = FastAPI(dependencies=[Depends(validate_token)])
 app.mount("/.well-known", StaticFiles(directory=".well-known"), name="static")
 
-# Create a sub-application, in order to access just the query endpoint in an OpenAPI schema, found at http://0.0.0.0:8000/sub/openapi.json when the app is running locally
-sub_app = FastAPI(
-    title="Retrieval Plugin API",
-    description="A retrieval API for querying and filtering documents based on natural language queries and metadata",
-    version="1.0.0",
-    servers=[{"url": "https://your-app-url.com"}],
-    dependencies=[Depends(validate_token)],
-)
-app.mount("/sub", sub_app)
 
 
 @app.post(
@@ -51,6 +45,7 @@ app.mount("/sub", sub_app)
 async def upsert_file(
     file: UploadFile = File(...),
     metadata: Optional[str] = Form(None),
+    openai_api_key: Optional[str] = Form(None),
 ):
     try:
         metadata_obj = (
@@ -60,15 +55,17 @@ async def upsert_file(
         )
     except:
         metadata_obj = DocumentMetadata(source=Source.file)
-
-    document = await get_document_from_file(file, metadata_obj)
-
+    if openai_api_key:
+        openai.api_key = openai_api_key
     try:
-        ids = await datastore.upsert([document])
-        return UpsertResponse(ids=ids)
+        document = await get_document_from_file(file, metadata_obj)
+        ids,total_token = await datastore.upsert([document])
+        return UpsertResponse(ids=ids,total_token=total_token)
+    except MyCustomError as e:
+        raise HTTPException(status_code=400, detail=f"{e}")
     except Exception as e:
         logger.error(e)
-        raise HTTPException(status_code=500, detail=f"str({e})")
+        raise HTTPException(status_code=500, detail=f"{e}")
 
 
 @app.post(
@@ -79,8 +76,8 @@ async def upsert(
     request: UpsertRequest = Body(...),
 ):
     try:
-        ids = await datastore.upsert(request.documents)
-        return UpsertResponse(ids=ids)
+        ids,total_token = await datastore.upsert(request.documents)
+        return UpsertResponse(ids=ids,total_token=total_token)
     except Exception as e:
         logger.error(e)
         raise HTTPException(status_code=500, detail="Internal Service Error")
@@ -88,38 +85,22 @@ async def upsert(
 
 @app.post(
     "/query",
-    response_model=QueryResponse,
+    response_model=QueryResponse2,
 )
 async def query_main(
-    request: QueryRequest = Body(...),
+    request: QueryRequest2 = Body(...),
 ):
+    if request.openai_api_key:
+        openai.api_key = request.openai_api_key
     try:
-        results = await datastore.query(
+        results,total_token = await datastore.query(
             request.queries,
         )
-        return QueryResponse(results=results)
+        return QueryResponse2(results=results,total_token=total_token)
     except Exception as e:
         logger.error(e)
         raise HTTPException(status_code=500, detail="Internal Service Error")
 
-
-@sub_app.post(
-    "/query",
-    response_model=QueryResponse,
-    # NOTE: We are describing the shape of the API endpoint input due to a current limitation in parsing arrays of objects from OpenAPI schemas. This will not be necessary in the future.
-    description="Accepts search query objects array each with query and optional filter. Break down complex questions into sub-questions. Refine results by criteria, e.g. time / source, don't do this often. Split queries if ResponseTooLargeError occurs.",
-)
-async def query(
-    request: QueryRequest = Body(...),
-):
-    try:
-        results = await datastore.query(
-            request.queries,
-        )
-        return QueryResponse(results=results)
-    except Exception as e:
-        logger.error(e)
-        raise HTTPException(status_code=500, detail="Internal Service Error")
 
 
 @app.delete(
