@@ -2,10 +2,11 @@ from typing import Dict, List, Optional, Tuple
 import uuid
 import os
 from models.models import Document, DocumentChunk, DocumentChunkMetadata
-
+from loguru import logger
 import tiktoken
+import re
 
-from services.openai import get_embeddings
+from services.openai import get_embeddingsTop,get_embeddings
 
 # Global variables
 tokenizer = tiktoken.get_encoding(
@@ -119,6 +120,7 @@ def create_document_chunks(
 
     # Generate a document id if not provided
     doc_id = doc.id or str(uuid.uuid4())
+    logger.info(f"生成docId: {doc_id}")
 
     # Split the document text into chunks
     text_chunks = get_text_chunks(doc.text, chunk_token_size)
@@ -137,10 +139,11 @@ def create_document_chunks(
     # Assign each chunk a sequential number and create a DocumentChunk object
     for i, text_chunk in enumerate(text_chunks):
         chunk_id = f"{doc_id}_{i}"
+        metadata.page=extract_page_number(text_chunk)
         doc_chunk = DocumentChunk(
             id=chunk_id,
             text=text_chunk,
-            metadata=metadata,
+            metadata=metadata
         )
         # Append the chunk object to the list of chunks for this document
         doc_chunks.append(doc_chunk)
@@ -151,7 +154,7 @@ def create_document_chunks(
 
 def get_document_chunks(
     documents: List[Document], chunk_token_size: Optional[int]
-) -> Dict[str, List[DocumentChunk]]:
+) -> Tuple[Dict[str, List[DocumentChunk]], int]:
     """
     Convert a list of documents into a dictionary from document id to list of document chunks.
 
@@ -165,11 +168,13 @@ def get_document_chunks(
     """
     # Initialize an empty dictionary of lists of chunks
     chunks: Dict[str, List[DocumentChunk]] = {}
+    total_tokens: int = 0
+    logger.info(f"初始化对象 total_tokens: {total_tokens}")
 
     # Initialize an empty list of all chunks
     all_chunks: List[DocumentChunk] = []
 
-    # Loop over each document and create chunks
+    # 循环浏览每份文档并创建文档块
     for doc in documents:
         doc_chunks, doc_id = create_document_chunks(doc, chunk_token_size)
 
@@ -179,21 +184,24 @@ def get_document_chunks(
         # Add the list of chunks for this document to the dictionary with the document id as the key
         chunks[doc_id] = doc_chunks
 
-    # Check if there are no chunks
+    # 检查是否没有数据块
+    logger.info(f"检查是否没有数据块")
     if not all_chunks:
-        return {}
+        return {},0
 
-    # Get all the embeddings for the document chunks in batches, using get_embeddings
+    # 使用 get_embeddings 分批获取文档块的所有嵌入信息
     embeddings: List[List[float]] = []
     for i in range(0, len(all_chunks), EMBEDDINGS_BATCH_SIZE):
         # Get the text of the chunks in the current batch
         batch_texts = [
             chunk.text for chunk in all_chunks[i : i + EMBEDDINGS_BATCH_SIZE]
         ]
-
+        
         # Get the embeddings for the batch texts
-        batch_embeddings = get_embeddings(batch_texts)
-
+        #batch_embeddings2,total_usage = get_embeddings(batch_texts)
+        #logger.info("向量: " + str(total_usage))
+        batch_embeddings, usage = get_embeddingsTop(batch_texts)
+        total_tokens += usage
         # Append the batch embeddings to the embeddings list
         embeddings.extend(batch_embeddings)
 
@@ -201,5 +209,13 @@ def get_document_chunks(
     for i, chunk in enumerate(all_chunks):
         # Assign the embedding from the embeddings list to the chunk object
         chunk.embedding = embeddings[i]
+    logger.info("total_tokens: " + str(total_tokens))
+    return chunks,total_tokens
 
-    return chunks
+def extract_page_number(text_chunk:str) -> int:
+    page_match = re.search(r"\[\[P(\d+)\]\]", text_chunk)
+    if page_match:
+        page_number = int(page_match.group(1))
+        return page_number
+    else:
+        return 1

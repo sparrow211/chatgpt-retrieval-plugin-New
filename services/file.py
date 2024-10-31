@@ -7,6 +7,7 @@ from PyPDF2 import PdfReader
 import docx2txt
 import csv
 import pptx
+from models.models import (MyCustomError)
 from loguru import logger
 
 from models.models import Document, DocumentMetadata
@@ -37,7 +38,19 @@ def extract_text_from_filepath(filepath: str, mimetype: Optional[str] = None) ->
 
     try:
         with open(filepath, "rb") as file:
-            extracted_text = extract_text_from_file(file, mimetype)
+            if mimetype == "application/pdf":
+                # Extract text from pdf using PyPDF2
+                reader = PdfReader(file)
+                if reader.is_encrypted:
+                    raise MyCustomError("PDF文件加密，请移除密码再试")
+                else:
+                    extracted_text = ""
+                    for i, page in enumerate(reader.pages):
+                        page_text = page.extract_text()
+                        extracted_text += f"{page_text}[[P{i+1}]] "
+                    return extracted_text
+            else:
+                extracted_text = extract_text_from_file(file, mimetype)
     except Exception as e:
         logger.error(e)
         raise e
@@ -45,11 +58,15 @@ def extract_text_from_filepath(filepath: str, mimetype: Optional[str] = None) ->
     return extracted_text
 
 
+
 def extract_text_from_file(file: BufferedReader, mimetype: str) -> str:
     if mimetype == "application/pdf":
         # Extract text from pdf using PyPDF2
         reader = PdfReader(file)
-        extracted_text = " ".join([page.extract_text() for page in reader.pages])
+        if reader.is_encrypted:
+            raise MyCustomError("PDF文件加密，请移除密码再试")
+        else:
+            extracted_text = " ".join([page.extract_text() for page in reader.pages])
     elif mimetype == "text/plain" or mimetype == "text/markdown":
         # Read text from plain text file
         extracted_text = file.read().decode("utf-8")
